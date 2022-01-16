@@ -24,7 +24,7 @@ module.exports = {
     try {
       if (input.data) {
         mainBot.editMessageText(
-          data.run('select * from phrases where keyword = "new_user"')[0]
+          data.run('select * from phrases where keyword = "registration"')[0]
             .content,
           {
             message_id: input.message.message_id,
@@ -36,7 +36,7 @@ module.exports = {
       } else
         mainBot.sendMessage(
           input.chat.id,
-          data.run('select * from phrases where keyword = "new_user"')[0]
+          data.run('select * from phrases where keyword = "registration"')[0]
             .content,
           {
             reply_markup: { inline_keyboard: eduprogskeyboard() },
