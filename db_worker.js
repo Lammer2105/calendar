@@ -6,6 +6,7 @@ const bot = new TelegramBot(process.env.DB_WORKER, { polling: true });
 var adminPanelMenu = [
   [{ text: "« Admin panel »", callback_data: "supermoderator" }],
 ];
+var fs = require("fs");
 var done_keyboard = [
   [
     {
@@ -20,6 +21,7 @@ var media_group = {};
 module.exports = {
   adminPanelMenu: adminPanelMenu,
   malling: sendAnyMessage,
+  getFiles: getFiles,
   register: (input, mainBot) => {
     try {
       if (input.data) {
@@ -1355,12 +1357,29 @@ function create_tables() {
   );
 }
 
+function getFiles(dir, files_) {
+  files_ = files_ || [];
+  var files = fs.readdirSync(dir);
+  for (var i in files) {
+    var name = dir + "/" + files[i];
+    if (fs.statSync(name).isDirectory()) {
+      getFiles(name, files_);
+    } else {
+      files_.push(files[i].slice(0, files[i].indexOf(".")));
+    }
+  }
+  return files_;
+}
+
 function eduprogskeyboard() {
   var eduprogs = data.run("select * from eduprogs");
   var keyboard = [[]];
   var row = 0;
   for (let index = 0; index < eduprogs.length; index++) {
-    const keyb_button = eduprogs[index];
+    if (!getFiles("excelfiles").includes(eduprogs[index].query)) continue;
+    const keyb_button = data.run("select * from eduprogs where query = ?", [
+      eduprogs[index].query,
+    ])[0];
     if (index % 2 == 0) {
       row++;
       keyboard.push([]);
