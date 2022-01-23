@@ -5,16 +5,23 @@ const data = require("sqlite-sync");
 data.connect("database/calendar.db");
 const functions = require("./db_worker");
 if (typeof require !== "undefined") XLSX = require("xlsx");
-var fs = require("fs");
-
 var registration = {};
+var reminder = [];
 
 bot.onText(/\/start/, async (msg) => {
   if (
-    data.run("select count (*) as cnt from users where user_id = ?", [
+    !data.run("select count (*) as cnt from users where user_id = ?", [
       msg.chat.id,
-    ])[0].cnt == 0
+    ])[0].cnt
   ) {
+    bot.sendMessage(
+      msg.chat.id,
+      data.run('select * from phrases where keyword = "greeting"')[0].content,
+      {
+        parse_mode: "HTML",
+        disable_web_page_preview: true,
+      }
+    );
     functions.register(msg, bot);
     registration[msg.chat.id] = {
       eduprog: true,
@@ -40,34 +47,41 @@ bot.on("message", (msg) => {
 });
 
 bot.on("callback_query", (query) => {
-  var chatId = query.message.chat.id;
   if (functions.adminPanel(query, bot) != "end") return;
   var eduprogs = data.run("select * from eduprogs");
   let user = new User(query.message.chat.id);
-  let keyboard = menu_keyboard(query.data, chatId);
+  let keyboard = menu_keyboard(query.data, user.user_id);
 
   for (let i = 0; i < eduprogs.length; i++) {
     eduprogs[i] = eduprogs[i].query;
   }
-  if (chatId in registration) {
-    if (registration[chatId].course) {
+  if (user.user_id in registration) {
+    if (registration[user.user_id].course) {
       if (query.data != "skipCourse" && !isNaN(query.data))
-        data.update("users", { course: +query.data }, { user_id: chatId });
+        data.update(
+          "users",
+          { course: +query.data },
+          { user_id: user.user_id }
+        );
       settingsMessage(query);
-      registration[chatId].course = false;
+      registration[user.user_id].course = false;
     }
-    if (registration[chatId].eduprog) {
+    if (registration[user.user_id].eduprog) {
       var text = "";
       if (eduprogs.includes(query.data)) {
-        data.update("users", { eduprog: query.data }, { user_id: chatId });
+        data.update(
+          "users",
+          { eduprog: query.data },
+          { user_id: user.user_id }
+        );
         text =
           "Обрано освітню програму " +
           data.run("select name from eduprogs where query = ?", [query.data])[0]
             .name;
       }
-      bot.editMessageText(text + "\nОберіть курс", {
+      bot.editMessageText(text + "\nОбери курс", {
         parse_mode: "HTML",
-        chat_id: chatId,
+        chat_id: user.user_id,
         message_id: query.message.message_id,
         reply_markup: {
           inline_keyboard: [
@@ -85,33 +99,42 @@ bot.on("callback_query", (query) => {
           ],
         },
       });
-      registration[chatId].eduprog = false;
-      registration[chatId].course = true;
+      registration[user.user_id].eduprog = false;
+      registration[user.user_id].course = true;
     }
   }
+
+  if (query.data == "notify")
+    data.update("users", { notifications: 1 }, { user_id: user.user_id });
+  if (query.data == "notnotify")
+    data.update("users", { notifications: 0 }, { user_id: user.user_id });
+
   if (
-    query.data == "notify" ||
-    query.data == "notnotify" ||
-    query.data == "settings"
+    data.run("select count (*) as cnt from admins where chat_id = ?", [
+      user.user_id,
+    ])[0].cnt
   ) {
-    if (query.data == "notify")
-      data.update("users", { notifications: 1 }, { user_id: chatId });
-    if (query.data == "notnotify")
-      data.update("users", { notifications: 0 }, { user_id: chatId });
-    settingsMessage(query);
+    if (query.data == "Gnotify") startReminder();
+    if (query.data == "Gnotnotify") stopReminder();
   }
+  if (query.data.indexOf("notify") != -1 || query.data == "settings") {
+    settingsMessage(query);
+    return;
+  }
+
   if (query.data == "register") {
     functions.register(query, bot);
-    registration[chatId] = {
+    registration[user.user_id] = {
       eduprog: true,
       course: false,
     };
   }
+
   if (query.data == "menu") {
     bot.editMessageText(
       data.run('select * from phrases where keyword = "menu"')[0].content,
       {
-        chat_id: chatId,
+        chat_id: user.user_id,
         parse_mode: "HTML",
         message_id: query.message.message_id,
         reply_markup: {
@@ -120,6 +143,36 @@ bot.on("callback_query", (query) => {
       }
     );
   }
+
+  if (
+    (user.eduprog == null || user.course == null) &&
+    (query.data == "today" || query.data == "week")
+  ) {
+    var settings_button = data.run(
+      "select * from menu_keyboard where callback_data = 'settings'"
+    )[0];
+    console.log(settings_button);
+    bot.editMessageText(
+      "Для цього потрібно закінчити реєстрацію в налаштуваннях",
+      {
+        chat_id: user.user_id,
+        message_id: query.message.message_id,
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: settings_button.text,
+                callback_data: settings_button.callback_data,
+              },
+            ],
+          ],
+        },
+        parse_mode: "HTML",
+      }
+    );
+    return;
+  }
+
   keyboard.unshift([
     {
       text: "Оновити",
@@ -128,116 +181,89 @@ bot.on("callback_query", (query) => {
   ]);
   if (query.data == "today") {
     if (
-      getFiles("excelfiles").includes(
-        "excelfiles/" +
-          data.run("select * from users where user_id = ?", [chatId])[0]
-            .eduprog +
-          ".xlsx"
-      )
+      functions
+        .getFiles("excelfiles")
+        .includes(
+          data.run("select * from users where user_id = ?", [user.user_id])[0]
+            .eduprog
+        )
     ) {
-      var course = "";
-      if (user.course > 4)
-        course = "магістратура - " + (user.course - 4) + " курс";
-      else course = user.course + " курс";
-
       var text =
         data.run("select name from eduprogs where query = ?", [user.eduprog])[0]
           .name +
         " " +
-        course +
+        course(user) +
         "\n" +
-        oneDayText(new Date().getDay(), user.eduprog, course);
+        getWeekDay(new Date().getDay()) +
+        ":\n" +
+        oneDayText(new Date().getDay(), user.eduprog, course(user));
 
       if (isTextEqual(text, query.message.text)) return;
       bot.editMessageText(text, {
-        chat_id: chatId,
+        chat_id: user.user_id,
         message_id: query.message.message_id,
         reply_markup: {
           inline_keyboard: keyboard,
         },
+        disable_web_page_preview: true,
         parse_mode: "HTML",
       });
     } else {
-      bot.sendMessage(chatId, "Розклад для Вашої ОП ще не завантажено");
+      bot.sendMessage(user.user_id, "Розклад для Вашої ОП ще не завантажено");
     }
   }
   if (query.data == "week") {
     if (
-      getFiles("excelfiles").includes(
-        "excelfiles/" +
-          data.run("select * from users where user_id = ?", [chatId])[0]
-            .eduprog +
-          ".xlsx"
-      )
+      functions
+        .getFiles("excelfiles")
+        .includes(
+          data.run("select * from users where user_id = ?", [user.user_id])[0]
+            .eduprog
+        )
     ) {
-      var course;
-      if (user.course > 4)
-        course = "магістратура - " + (user.course - 4) + " курс";
-      else course = user.course + " курс";
-
       var text =
         data.run("select name from eduprogs where query = ?", [user.eduprog])[0]
           .name +
         " " +
-        course +
+        course(user) +
         "\n";
       for (let i = 1; i < 6; i++) {
-        text += oneDayText(i, user.eduprog, course);
+        text +=
+          getWeekDay(i) + ":\n" + oneDayText(i, user.eduprog, course(user));
       }
       if (isTextEqual(text, query.message.text)) return;
       try {
         bot.editMessageText(text, {
-          chat_id: chatId,
+          chat_id: user.user_id,
           message_id: query.message.message_id,
           reply_markup: {
             inline_keyboard: keyboard,
           },
+          disable_web_page_preview: true,
           parse_mode: "HTML",
         });
       } catch (error) {}
     } else {
-      bot.sendMessage(chatId, "Розклад для Вашої ОП ще не завантажено");
+      bot.sendMessage(user.user_id, "Розклад для Вашої ОП ще не завантажено");
     }
   }
 });
 
 function oneDayText(day, eduprog, course) {
-  var text = getWeekDay(day);
-  var dayRow,
-    courseColumn,
-    numberOfColumns,
-    numberOfRows,
-    numberOfGroups = 0;
+  var text = "";
+  if (day == 0) return text + "<b>День самостійної роботи</b>\n";
+
   var sheet = new Sheet(eduprog);
-  if (day == 0) return text + "\n<b>День самостійної роботи</b>";
-  for (let i = 1; true; i++) {
-    if (sheet.cell("A" + i) == text) {
-      dayRow = i;
-      for (let j = i + 1; isNaN(numberOfRows); j++) {
-        if (sheet.cell("A" + j) != "") {
-          numberOfRows = j - i;
-          break;
-        }
-      }
-    }
-    if (sheet.cell(column(i) + "6") == course) {
-      courseColumn = i;
-      for (let j = i + 1; isNaN(numberOfColumns); j++) {
-        if (sheet.cell(column(j) + "6") != "") {
-          numberOfColumns = j - i;
-          for (let k = courseColumn; k < courseColumn + numberOfColumns; k++) {
-            if (sheet.cell(column(k) + "8") != "") numberOfGroups += 1;
-          }
-          break;
-        }
-      }
-    }
-    if (!isNaN(numberOfColumns) && !isNaN(numberOfRows)) break;
-  }
-  text += ":\n";
+  var dayRow, courseColumn, numberOfColumns, numberOfRows, numberOfGroups;
+  dayRow = sheet.dayRow(day);
+  numberOfRows = sheet.dayRows(dayRow);
+  courseColumn = sheet.courseColumn(course);
+  numberOfColumns = sheet.courseColumns(courseColumn);
+  numberOfGroups = sheet.groups(courseColumn, numberOfColumns);
+
   for (let j = dayRow; j < dayRow + numberOfRows; j++) {
     if (sheet.cell(column(courseColumn) + j).toUpperCase() == "ДЕНЬ") {
-      text += "<b>День самостійної роботи</b>";
+      text += "<b>День самостійної роботи</b>\n\n";
       return text;
     }
   }
@@ -343,7 +369,7 @@ function menu_keyboard(callback_data, chatId) {
     data.run(
       "select count(*) as cnt from admins where rank not null and rank <> 'moderator' and chat_id = ?",
       [chatId]
-    )[0].cnt > 0
+    )[0].cnt
   ) {
     keyboard.push(functions.adminPanelMenu[0]);
   }
@@ -351,52 +377,67 @@ function menu_keyboard(callback_data, chatId) {
 }
 
 function settingsMessage(query) {
-  var notifications;
+  var notifications, Gnotifications;
   let user = new User(query.message.chat.id);
+
   user.notifications
     ? (notifications = "увімкнено")
     : (notifications = "вимкнено");
-  bot.editMessageText(
+  var keyboard = {
+    inline_keyboard: [
+      [
+        { text: "Змінити📝", callback_data: "register" },
+        {
+          text: user.notifications ? "🔕" : "🔔",
+          callback_data: user.notifications ? "notnotify" : "notify",
+        },
+      ],
+    ],
+  };
+  var text =
     "Поточні налаштування\nОсвітня програма: <b>" +
-      user.eduprog +
-      "</b>\nКурс: <b>" +
-      user.course +
-      "</b>\nСповіщення про початок пари <b>" +
-      notifications +
-      "</b>",
-    {
-      parse_mode: "HTML",
-      message_id: query.message.message_id,
-      chat_id: query.message.chat.id,
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: "Змінити📝", callback_data: "register" },
-            {
-              text: user.notifications ? "🔕" : "🔔",
-              callback_data: user.notifications ? "notnotify" : "notify",
-            },
-          ],
-          [{ text: "Головне меню «", callback_data: "menu" }],
-        ],
+    user.eduprog +
+    "</b>\nКурс: <b>" +
+    user.course +
+    "</b>\nСповіщення про початок пари <b>" +
+    notifications +
+    "</b>";
+  if (
+    data.run("select count (*) as cnt from admins where chat_id = ?", [
+      user.user_id,
+    ])[0].cnt
+  ) {
+    keyboard.inline_keyboard.push([
+      {
+        text: reminder.length ? "Для всіх 🔕" : " Для всіх 🔔",
+        callback_data: reminder.length ? "Gnotnotify" : "Gnotify",
       },
-    }
-  );
-}
-
-var getFiles = function (dir, files_) {
-  files_ = files_ || [];
-  var files = fs.readdirSync(dir);
-  for (var i in files) {
-    var name = dir + "/" + files[i];
-    if (fs.statSync(name).isDirectory()) {
-      getFiles(name, files_);
-    } else {
-      files_.push(name);
-    }
+    ]);
+    reminder.length
+      ? (Gnotifications = "увімкнено")
+      : (Gnotifications = "вимкнено");
+    text +=
+      "\nСповіщення про початок пари для всіх користувачів: <b>" +
+      Gnotifications +
+      "</b>";
+  } else {
+    reminder.length
+      ? (Gnotifications =
+          "Нагадування про початок пари <b>буде надсилатись</b>, якщо така функція увімкнена у твоїх параметрах. 🙂")
+      : (Gnotifications =
+          "Адміністратор <b>вимкнув</b> нагадування про початок пари <i>для всіх користувачів</i>. Навіть якщо функція увімкнена в твоїх параметрах, ти все одно не отримаєш сповіщення 😔");
+    text += "\n\n" + Gnotifications;
   }
-  return files_;
-};
+  keyboard.inline_keyboard.push([
+    { text: "Головне меню 🏠", callback_data: "menu" },
+  ]);
+  bot.editMessageText(text, {
+    parse_mode: "HTML",
+    message_id: query.message.message_id,
+    chat_id: query.message.chat.id,
+    reply_markup: keyboard,
+  });
+}
 
 function getWeekDay(day) {
   let days = [
@@ -409,6 +450,13 @@ function getWeekDay(day) {
     "Субота",
   ];
   return days[day];
+}
+
+function course(user) {
+  var course;
+  if (user.course > 4) course = "магістратура - " + (user.course - 4) + " курс";
+  else course = user.course + " курс";
+  return course;
 }
 
 function isTextEqual(newText, oldText) {
@@ -444,8 +492,72 @@ class Sheet {
     this.worksheet = this.workbook.Sheets[this.workbook.SheetNames[0]];
 
     this.cell = function (coord) {
-      this.desiredCell = this.worksheet[coord];
-      return this.desiredCell ? this.desiredCell.v : "";
+      return this.worksheet[coord] ? this.worksheet[coord].v : "";
+    };
+    this.courseColumn = function (course) {
+      for (let i = 1; true; i++) {
+        if (this.cell(column(i) + "6") == course) {
+          return i;
+        }
+      }
+    };
+    this.dayRow = function (day) {
+      let i = 1;
+      for (i; true; i++) {
+        if (this.cell("A" + i) == getWeekDay(day)) {
+          break;
+        }
+      }
+      return i;
+    };
+    this.courseColumns = function (courseColumn) {
+      let i = courseColumn + 1;
+      for (i; true; i++) {
+        if (this.cell(column(i) + "6") != "") {
+          break;
+        }
+      }
+      return i - courseColumn;
+    };
+    this.dayRows = function (dayRow) {
+      let i = dayRow + 1;
+      for (i; true; i++) {
+        if (this.cell("A" + i) != "") {
+          break;
+        }
+      }
+      return i - dayRow;
+    };
+    this.groups = function (courseColumn, numberOfColumns) {
+      var numberOfGroups = 0;
+      if (this.cell(column(courseColumn) + "8") == "") return 1;
+      let i = courseColumn;
+      for (i; i < courseColumn + numberOfColumns; i++) {
+        if (this.cell(column(i) + "8") != "") numberOfGroups += 1;
+      }
+      return numberOfGroups;
+    };
+    this.timeRow = function (dayRow, time) {
+      let i = dayRow;
+      for (i; true; i++) {
+        if (this.cell("B" + i)) {
+          if (
+            (this.cell("B" + i).indexOf("-") != -1 &&
+              this.cell("B" + i).slice(
+                0,
+                this.cell("B" + i).indexOf("-") == time
+              )) ||
+            (this.cell("B" + i).indexOf("*") != -1 &&
+              this.cell("B" + i).slice(
+                0,
+                this.cell("B" + i).indexOf("*") == time
+              ))
+          ) {
+            break;
+          }
+        }
+      }
+      return i - 1;
     };
   }
 }
@@ -462,6 +574,66 @@ class User {
     this.first_name = user.first_name;
   }
 }
+
+function stopReminder() {
+  reminder.forEach((element) => {
+    clearInterval(element);
+  });
+  reminder = [];
+}
+function startReminder() {
+  if (!reminder.length)
+    reminder.push(
+      setInterval(function sendNotifications() {
+        const times = [
+          "7.55",
+          "9.35",
+          "11.15",
+          "12.45",
+          "14.25",
+          "15.55",
+          "17.25",
+        ];
+        const exact_times = [
+          "8.00",
+          "9.40",
+          "11.20",
+          "12.50",
+          "14.30",
+          "16.00",
+          "17.30",
+        ];
+        if (new Date().getDay() > 0) {
+          let time = new Date().getHours() + "." + new Date().getMinutes();
+          if (times.includes(time)) {
+            data
+              .run("select * from users where notifications = 1")
+              .forEach((user) => {
+                var text = oneLessonText(
+                  sheet,
+                  sheet.timeRow(
+                    sheet.dayRow(new Date().getDay()),
+                    exact_times[times.indexOf(time)]
+                  ),
+                  column(sheet.courseColumn(user.course)),
+                  sheet.courseColumns(sheet.courseColumn(user.course))
+                );
+                var sheet = new Sheet(user.eduprog);
+                if (text)
+                  functions.malling(
+                    null,
+                    "Через 5 хвилин починається пара " + text,
+                    user.user_id,
+                    bot
+                  );
+              });
+          }
+        }
+      }, 60000)
+    );
+}
+
+startReminder();
 
 // ██████╗░░█████╗░░█████╗░████████╗░█████╗░██████╗░  ██████╗░██████╗░██╗███╗░░░███╗███████╗
 // ██╔══██╗██╔══██╗██╔══██╗╚══██╔══╝██╔══██╗██╔══██╗  ██╔══██╗██╔══██╗██║████╗░████║██╔════╝
