@@ -1234,7 +1234,6 @@ async function mallingFunction(input, chatId, workingBot) {
   }
 }
 function sendAnyMessage(msg, text, chatId, mainBot) {
-  if (msg == null) msg = { text: text };
   if (msg.media_group_id) {
     var media_element = {
       type: "",
