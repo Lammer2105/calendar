@@ -23,6 +23,7 @@ module.exports = {
   malling: sendAnyMessage,
   getFiles: getFiles,
   register: (input, mainBot) => {
+    var chatId = input.data ? input.message.chat.id : input.chat.id;
     try {
       if (input.data) {
         mainBot.editMessageText(
@@ -37,7 +38,7 @@ module.exports = {
         input = input.message;
       } else
         mainBot.sendMessage(
-          input.chat.id,
+          chatId,
           data.run('select * from phrases where keyword = "registration"')[0]
             .content,
           {
@@ -45,11 +46,27 @@ module.exports = {
             parse_mode: "HTML",
           }
         );
-      data.insert("users", {
-        user_id: input.chat.id,
-        username: input.chat.username,
-        first_name: input.chat.first_name,
-      });
+      if (
+        !data.run("select count (*) as cnt from users where user_id = ?", [
+          chatId,
+        ])[0].cnt
+      ) {
+        data.insert("users", {
+          user_id: chatId,
+          username: input.chat.username,
+          first_name: input.chat.first_name,
+          notifications: 1,
+        });
+      } else {
+        data.update(
+          "users",
+          {
+            username: input.chat.username,
+            first_name: input.chat.first_name,
+          },
+          { user_id: chatId }
+        );
+      }
     } catch (error) {}
   },
   adminPanel: function adminPanel(input, mainBot) {
@@ -1216,8 +1233,8 @@ async function mallingFunction(input, chatId, workingBot) {
     malling[chatId].iterator = 0;
   }
 }
-
 function sendAnyMessage(msg, text, chatId, mainBot) {
+  if (msg == null) msg = { text: text };
   if (msg.media_group_id) {
     var media_element = {
       type: "",
