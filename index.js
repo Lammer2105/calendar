@@ -299,6 +299,7 @@ function oneDayText(day, eduprog, course) {
 }
 
 function oneLessonText(sheet, row, col, numberOfColumns) {
+  // number of columns - кількість колонок для однієї групи
   let text = "";
   let week = false;
   for (let j = col; j < col + numberOfColumns; j++) {
@@ -494,15 +495,15 @@ class Sheet {
     this.cell = function (coord) {
       return this.worksheet[coord] ? this.worksheet[coord].v : "";
     };
-    this.courseColumn = function (course) {
-      for (let i = 1; true; i++) {
+    this.courseColumn = function (course, i = 1) {
+      for (i; true; i++) {
         if (this.cell(column(i) + "6") == course) {
-          return i;
+          break;
         }
       }
+      return i;
     };
-    this.dayRow = function (day) {
-      let i = 1;
+    this.dayRow = function (day, i = 1) {
       for (i; true; i++) {
         if (this.cell("A" + i) == getWeekDay(day)) {
           break;
@@ -540,18 +541,13 @@ class Sheet {
     this.timeRow = function (dayRow, time) {
       let i = dayRow;
       for (i; true; i++) {
-        if (this.cell("B" + i)) {
+        const cell = this.cell("B" + i);
+        if (cell != "") {
           if (
-            (this.cell("B" + i).indexOf("-") != -1 &&
-              this.cell("B" + i).slice(
-                0,
-                this.cell("B" + i).indexOf("-") == time
-              )) ||
-            (this.cell("B" + i).indexOf("*") != -1 &&
-              this.cell("B" + i).slice(
-                0,
-                this.cell("B" + i).indexOf("*") == time
-              ))
+            (cell.indexOf("-") != -1 &&
+              cell.slice(0, cell.indexOf("-")) == String(time)) ||
+            (cell.indexOf("*") != -1 &&
+              cell.slice(0, cell.indexOf("*")) == String(time))
           ) {
             break;
           }
@@ -607,22 +603,41 @@ function startReminder() {
           let time = new Date().getHours() + "." + new Date().getMinutes();
           if (times.includes(time)) {
             data
-              .run("select * from users where notifications = 1")
+              .run(
+                "select * from users where notifications = 1 and eduprog not null and course not null"
+              )
               .forEach((user) => {
-                var text = oneLessonText(
-                  sheet,
-                  sheet.timeRow(
-                    sheet.dayRow(new Date().getDay()),
-                    exact_times[times.indexOf(time)]
-                  ),
-                  column(sheet.courseColumn(user.course)),
-                  sheet.courseColumns(sheet.courseColumn(user.course))
-                );
                 var sheet = new Sheet(user.eduprog);
+                var courseColumn, courseColumns, numberOfGroups;
+                courseColumn = sheet.courseColumn(course(user));
+                courseColumns = sheet.courseColumns(courseColumn);
+                numberOfGroups = sheet.groups(courseColumn, courseColumns);
+                timeRow = sheet.timeRow(
+                  sheet.dayRow(1),
+                  exact_times[times.indexOf(time)]
+                );
+                var text = "";
+                for (
+                  let i = courseColumn, k = 1;
+                  i < courseColumn + courseColumns;
+                  i += courseColumns / numberOfGroups, k++
+                ) {
+                  const lesson = oneLessonText(
+                    sheet,
+                    timeRow,
+                    i,
+                    courseColumns / numberOfGroups
+                  );
+                  if (lesson)
+                    text += "\n<u><b>" + k + "</b> група</u>\n" + lesson;
+                }
                 if (text)
                   functions.malling(
-                    null,
-                    "Через 5 хвилин починається пара " + text,
+                    { text: true },
+                    "Через 5 хвилин починається пара<b>\n" +
+                      sheet.cell(column(2) + (timeRow + 1)) +
+                      "</b>" +
+                      text,
                     user.user_id,
                     bot
                   );
