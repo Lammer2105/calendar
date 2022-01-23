@@ -571,6 +571,65 @@ class User {
   }
 }
 
+function sendAskAndAnswer(msg) {
+  let admins = data.run("select * from admins where rank not null");
+  let current_admin = data.run(
+    "select * from admins where rank not null and chat_id = ?",
+    [msg.chat.id]
+  );
+  if (
+    current_admin.length &&
+    msg.reply_to_message &&
+    (msg.reply_to_message.entities || msg.reply_to_message.caption_entities)
+  ) {
+    functions.malling(
+      msg,
+      msg.text ? msg.text : msg.caption ? msg.caption : "",
+      msg.reply_to_message.entities
+        ? msg.reply_to_message.entities[0].user.id
+        : msg.reply_to_message.caption_entities
+        ? msg.reply_to_message.caption_entities[0].user.id
+        : NaN,
+      bot
+    );
+    for (let i = 0; i < admins.length; i++) {
+      const another_admin = admins[i];
+      if (current_admin[0].chat_id == another_admin.chat_id) continue;
+      functions.malling(
+        msg,
+        (msg.chat.first_name ? msg.chat.first_name : msg.chat.title) +
+          " відповів " +
+          (msg.reply_to_message.text
+            ? msg.reply_to_message.entities[0].user.first_name
+            : msg.reply_to_message.caption
+            ? msg.reply_to_message.caption_entities[0].user.first_name
+            : null) +
+          ":\n" +
+          (msg.text ? msg.text : msg.caption ? msg.caption : ""),
+        another_admin.chat_id,
+        bot
+      );
+    }
+    return;
+  }
+  if (msg.chat.id == msg.from.id && !current_admin.length) {
+    admins.forEach((admin) => {
+      functions.malling(
+        msg,
+        '<a href="tg://user?id=' +
+          msg.from.id +
+          '">' +
+          msg.from.first_name +
+          "</a>" +
+          "\n" +
+          (msg.text ? msg.text : msg.caption ? msg.caption : ""),
+        admin.chat_id,
+        bot
+      );
+    });
+  }
+}
+
 function stopReminder() {
   reminder.forEach((element) => {
     clearInterval(element);
