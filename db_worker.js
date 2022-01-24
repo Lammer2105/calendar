@@ -487,26 +487,10 @@ module.exports = {
 
         if (input.data == "statistics") {
           var text = "";
-          var eduprogs_statistics = data.run(
-            "select eduprogs.name, number_of_visits from statistics inner join eduprogs on statistics.name = eduprogs.query"
-          );
-          var keyboard_statistics = data.run(
-            "select * from statistics inner join menu_keyboard on statistics.name = menu_keyboard.callback_data"
-          );
-          for (let i = 0; i < eduprogs_statistics.length; i++) {
-            const eduprog = eduprogs_statistics[i];
-            text += eduprog.name + " " + eduprog.number_of_visits + "\n";
-          }
-          for (let i = 0; i < keyboard_statistics.length; i++) {
-            const element_keyb = keyboard_statistics[i];
-            if (
-              element_keyb.callback_data == "ask" ||
-              element_keyb.callback_data == "cancel"
-            )
-              continue;
-            text +=
-              element_keyb.text + " " + element_keyb.number_of_visits + "\n";
-          }
+          var statistics = data.run("select * from statistics");
+          statistics.forEach((element) => {
+            text += element.name + ": " + element.number_of_visits + "\n";
+          });
           mainBot.editMessageText(text, {
             parse_mode: "HTML",
             chat_id: chatId,
@@ -722,7 +706,7 @@ module.exports = {
       mainBot.sendMessage(msg.chat.id, "Невірний пароль");
     }
   },
-  updateStats: function updateStatistics(query) {
+  updateStatistics: function updateStatistics(query) {
     if (
       data.run("select count(*) as cnt from admins where chat_id = ?", [
         query.message.chat.id,
@@ -1345,6 +1329,7 @@ function create_tables() {
         first_name text,
         eduprog text,
         course integer,
+        group_number integer,
         notifications bit
     )`
   );
@@ -1406,6 +1391,5 @@ function eduprogskeyboard() {
       callback_data: keyb_button.query,
     });
   }
-  keyboard.push([{ text: "Пропустити крок", callback_data: "skipEduprog" }]);
   return keyboard;
 }
