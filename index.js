@@ -276,13 +276,16 @@ function oneDayText(day, eduprog, course) {
       i < courseColumn + numberOfColumns;
       i += numberOfColumns / numberOfGroups, k++
     ) {
-      if (oneLessonText(sheet, j, i, numberOfColumns / numberOfGroups)) {
-        classes +=
-          "<u><b>" +
-          k +
-          "</b> група</u>\n" +
-          oneLessonText(sheet, j, i, numberOfColumns / numberOfGroups) +
-          "\n";
+      var lesson = oneLessonText(sheet, j, i, numberOfColumns / numberOfGroups);
+      if (lesson) {
+        if (
+          lesson.indexOf("(л)") == -1 &&
+          lesson.indexOf("Кластер") == -1 &&
+          lesson.indexOf("Кл.") == -1
+        )
+          //do not add a group ID when a pair exists for a cluster or is a lecture
+          classes += "<u><b>" + k + "</b> група</u>\n";
+        classes += lesson + "\n";
         isLessonEmpty = false;
       }
     }
