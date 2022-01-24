@@ -121,7 +121,7 @@ bot.on("callback_query", (query) => {
     return;
   }
 
-  if (query.data == "register") {
+  if (query.data.includes("register")) {
     functions.register(query, bot);
     registration[user.user_id] = {
       eduprog: true,
@@ -178,7 +178,9 @@ bot.on("callback_query", (query) => {
       callback_data: query.data,
     },
   ]);
-  if (query.data == "today") {
+  if (query.data.includes("today")) {
+    var day = new Date().getDay();
+    if (query.data.includes(".")) day = query.data.split(".")[1];
     if (
       functions
         .getFiles("excelfiles")
@@ -193,11 +195,19 @@ bot.on("callback_query", (query) => {
         " " +
         course(user) +
         "\n" +
-        getWeekDay(new Date().getDay()) +
+        getWeekDay(day) +
         ":\n" +
-        oneDayText(new Date().getDay(), user.eduprog, course(user));
+        oneDayText(day, user.eduprog, course(user));
 
       if (isTextEqual(text, query.message.text)) return;
+      keyboard[0].unshift({
+        text: "⬅️",
+        callback_data: "today." + prevnextday(day)[0],
+      });
+      keyboard[0].push({
+        text: "➡️",
+        callback_data: "today." + prevnextday(day)[1],
+      });
       bot.editMessageText(text, {
         chat_id: user.user_id,
         message_id: query.message.message_id,
@@ -353,7 +363,7 @@ function menu_keyboard(callback_data, chatId) {
       row++;
       keyboard.push([]);
     }
-    if (callback_data === keyb_button.callback_data) {
+    if (String(callback_data).includes(String(keyb_button.callback_data))) {
       continue;
     }
     if (
@@ -454,6 +464,12 @@ function getWeekDay(day) {
     "Субота",
   ];
   return days[day];
+}
+
+function prevnextday(day) {
+  if (day == 1) return [6, 2];
+  if (day == 6) return [5, 1];
+  return [+day - 1, +day + 1];
 }
 
 function course(user) {
