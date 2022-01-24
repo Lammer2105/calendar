@@ -48,13 +48,8 @@ bot.on("message", (msg) => {
 
 bot.on("callback_query", (query) => {
   if (functions.adminPanel(query, bot) != "end") return;
-  var eduprogs = data.run("select * from eduprogs");
   let user = new User(query.message.chat.id);
   let keyboard = menu_keyboard(query.data, user.user_id);
-
-  for (let i = 0; i < eduprogs.length; i++) {
-    eduprogs[i] = eduprogs[i].query;
-  }
   if (user.user_id in registration) {
     if (registration[user.user_id].course) {
       if (query.data != "skipCourse" && !isNaN(query.data))
@@ -68,6 +63,10 @@ bot.on("callback_query", (query) => {
     }
     if (registration[user.user_id].eduprog) {
       var text = "";
+      var eduprogs = data.run("select * from eduprogs");
+      for (let i = 0; i < eduprogs.length; i++) {
+        eduprogs[i] = eduprogs[i].query;
+      }
       if (eduprogs.includes(query.data)) {
         data.update(
           "users",
