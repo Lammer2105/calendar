@@ -5,8 +5,8 @@ const data = require("sqlite-sync");
 data.connect("database/calendar.db");
 const functions = require("./db_worker");
 if (typeof require !== "undefined") XLSX = require("xlsx");
-var registration = {};
-var reminder = [];
+var registration = {},
+  reminder = [];
 
 bot.onText(/\/start/, async (msg) => {
   if (
@@ -62,8 +62,8 @@ bot.on("callback_query", (query) => {
       registration[user.user_id].course = false;
     }
     if (registration[user.user_id].eduprog) {
-      var text = "";
-      var eduprogs = data.run("select * from eduprogs");
+      var text = "",
+        eduprogs = data.run("select * from eduprogs");
       for (let i = 0; i < eduprogs.length; i++) {
         eduprogs[i] = eduprogs[i].query;
       }
@@ -247,35 +247,36 @@ bot.on("callback_query", (query) => {
     }
   }
 });
-
-function oneDayText(day, eduprog, course) {
-  var text = "";
-  if (day == 0) return text + "<b>День самостійної роботи</b>\n";
-
-  var sheet = new Sheet(eduprog);
-  var dayRow, courseColumn, numberOfColumns, numberOfRows, numberOfGroups;
-  dayRow = sheet.dayRow(day);
-  numberOfRows = sheet.dayRows(dayRow);
-  courseColumn = sheet.courseColumn(course);
-  numberOfColumns = sheet.courseColumns(courseColumn);
-  numberOfGroups = sheet.groups(courseColumn, numberOfColumns);
-
-  for (let j = dayRow; j < dayRow + numberOfRows; j++) {
+function isDayEmpty(sheet, dayRow, courseColumn) {
+  for (let j = dayRow; j < dayRow + sheet.dayRows(dayRow); j++) {
     if (sheet.cell(column(courseColumn) + j).toUpperCase() == "ДЕНЬ") {
-      text += "<b>День самостійної роботи</b>\n\n";
-      return text;
+      return true;
     }
   }
+  return false;
+}
+function oneDayText(day, eduprog, course) {
+  var text = "",
+    sheet = new Sheet(eduprog),
+    dayRow,
+    courseColumn,
+    groups;
+  dayRow = sheet.dayRow(day);
+  courseColumn = sheet.courseColumn(course);
+  groups = sheet.groups(courseColumn);
 
-  for (let j = dayRow; j < dayRow + numberOfRows; j += 4) {
+  if (isDayEmpty(sheet, dayRow, courseColumn) || day == 0)
+    return text + "<b>День самостійної роботи</b>\n\n";
+
+  for (let j = dayRow; j < dayRow + sheet.dayRows(dayRow); j += 4) {
     let classes = "";
-    let isLessonEmpty = true;
-    for (
-      let i = courseColumn, k = 1;
-      i < courseColumn + numberOfColumns;
-      i += numberOfColumns / numberOfGroups, k++
-    ) {
-      var lesson = oneLessonText(sheet, j, i, numberOfColumns / numberOfGroups);
+    for (i = 0; i < groups.length - 1; i++) {
+      const lesson = oneLessonText(
+        sheet,
+        j,
+        groups[i],
+        groups[i + 1] - groups[i]
+      );
       if (lesson) {
         if (
           lesson.indexOf("(л)") == -1 &&
@@ -283,12 +284,11 @@ function oneDayText(day, eduprog, course) {
           lesson.indexOf("Кл.") == -1
         )
           //do not add a group ID when a pair exists for a cluster or is a lecture
-          classes += "<u><b>" + k + "</b> група</u>\n";
+          classes += "<u><b>" + (i + 1) + "</b> група</u>\n";
         classes += lesson + "\n";
-        isLessonEmpty = false;
       }
     }
-    if (!isLessonEmpty) {
+    if (classes) {
       text +=
         "<b><i>" +
         sheet.cell(column(2) + (j + 1)) +
@@ -345,8 +345,8 @@ function oneLessonText(sheet, row, col, numberOfColumns) {
 
 function menu_keyboard(callback_data, chatId) {
   let menu_keyboard = data.run("select * from menu_keyboard");
-  var keyboard = [[]];
-  var row = 0;
+  var keyboard = [[]],
+    row = 0;
   for (let index = 0; index < menu_keyboard.length; index++) {
     const keyb_button = menu_keyboard[index];
     if (index % 2 == 0) {
@@ -380,31 +380,32 @@ function menu_keyboard(callback_data, chatId) {
 }
 
 function settingsMessage(query) {
-  var notifications, Gnotifications;
-  let user = new User(query.message.chat.id);
+  var notifications,
+    Gnotifications,
+    user = new User(query.message.chat.id);
 
   user.notifications
     ? (notifications = "увімкнено")
     : (notifications = "вимкнено");
   var keyboard = {
-    inline_keyboard: [
-      [
-        { text: "Змінити📝", callback_data: "register" },
-        {
-          text: user.notifications ? "🔕" : "🔔",
-          callback_data: user.notifications ? "notnotify" : "notify",
-        },
+      inline_keyboard: [
+        [
+          { text: "Змінити📝", callback_data: "register" },
+          {
+            text: user.notifications ? "🔕" : "🔔",
+            callback_data: user.notifications ? "notnotify" : "notify",
+          },
+        ],
       ],
-    ],
-  };
-  var text =
-    "Поточні налаштування\nОсвітня програма: <b>" +
-    user.eduprog +
-    "</b>\nКурс: <b>" +
-    user.course +
-    "</b>\nСповіщення про початок пари <b>" +
-    notifications +
-    "</b>";
+    },
+    text =
+      "Поточні налаштування\nОсвітня програма: <b>" +
+      user.eduprog +
+      "</b>\nКурс: <b>" +
+      user.course +
+      "</b>\nСповіщення про початок пари <b>" +
+      notifications +
+      "</b>";
   if (
     data.run("select count (*) as cnt from admins where chat_id = ?", [
       user.user_id,
@@ -456,10 +457,8 @@ function getWeekDay(day) {
 }
 
 function course(user) {
-  var course;
-  if (user.course > 4) course = "магістратура - " + (user.course - 4) + " курс";
-  else course = user.course + " курс";
-  return course;
+  if (user.course > 4) return "магістратура - " + (user.course - 4) + " курс";
+  else return user.course + " курс";
 }
 
 function isTextEqual(newText, oldText) {
@@ -514,8 +513,7 @@ class Sheet {
       return i;
     };
     this.courseColumns = function (courseColumn) {
-      let i = courseColumn + 1;
-      for (i; true; i++) {
+      for (var i = courseColumn + 1; true; i++) {
         if (this.cell(column(i) + "6") != "") {
           break;
         }
@@ -523,26 +521,28 @@ class Sheet {
       return i - courseColumn;
     };
     this.dayRows = function (dayRow) {
-      let i = dayRow + 1;
-      for (i; true; i++) {
+      for (var i = dayRow + 1; true; i++) {
         if (this.cell("A" + i) != "") {
           break;
         }
       }
       return i - dayRow;
     };
-    this.groups = function (courseColumn, numberOfColumns) {
-      var numberOfGroups = 0;
-      if (this.cell(column(courseColumn) + "8") == "") return 1;
-      let i = courseColumn;
-      for (i; i < courseColumn + numberOfColumns; i++) {
-        if (this.cell(column(i) + "8") != "") numberOfGroups += 1;
+    this.groups = function (courseColumn) {
+      var groupColumns = [];
+      if (this.cell(column(courseColumn) + "8") == "") return [courseColumn];
+      for (
+        var i = courseColumn;
+        i < this.courseColumns(courseColumn) + courseColumn;
+        i++
+      ) {
+        if (this.cell(column(i) + "8") != "") groupColumns.push(i);
       }
-      return numberOfGroups;
+      groupColumns.push(this.courseColumns(courseColumn) + courseColumn);
+      return groupColumns;
     };
     this.timeRow = function (dayRow, time) {
-      let i = dayRow;
-      for (i; true; i++) {
+      for (var i = dayRow; true; i++) {
         const cell = this.cell("B" + i);
         if (cell != "") {
           if (
@@ -668,36 +668,50 @@ function startReminder() {
                 "select * from users where notifications = 1 and eduprog not null and course not null"
               )
               .forEach((user) => {
-                var sheet = new Sheet(user.eduprog);
-                var courseColumn, courseColumns, numberOfGroups;
+                var sheet = new Sheet(user.eduprog),
+                  courseColumn,
+                  groups;
                 courseColumn = sheet.courseColumn(course(user));
-                courseColumns = sheet.courseColumns(courseColumn);
-                numberOfGroups = sheet.groups(courseColumn, courseColumns);
+                groups = sheet.groups(courseColumn);
                 timeRow = sheet.timeRow(
                   sheet.dayRow(new Date().getDay()),
                   exact_times[times.indexOf(time)]
                 );
+
                 var text = "";
-                for (
-                  let i = courseColumn, k = 1;
-                  i < courseColumn + courseColumns;
-                  i += courseColumns / numberOfGroups, k++
-                ) {
+                if (
+                  isDayEmpty(
+                    sheet,
+                    sheet.dayRow(new Date().getDay()),
+                    courseColumn
+                  )
+                )
+                  return;
+
+                for (i = 0; i < groups.length - 1; i++) {
                   const lesson = oneLessonText(
                     sheet,
                     timeRow,
-                    i,
-                    courseColumns / numberOfGroups
+                    groups[i],
+                    groups[i + 1] - groups[i]
                   );
-                  if (lesson)
-                    text += "\n<u><b>" + k + "</b> група</u>\n" + lesson;
+                  if (lesson) {
+                    if (
+                      lesson.indexOf("(л)") == -1 &&
+                      lesson.indexOf("Кластер") == -1 &&
+                      lesson.indexOf("Кл.") == -1
+                    )
+                      //do not add a group ID when a pair exists for a cluster or is a lecture
+                      text += "<u><b>" + (i + 1) + "</b> група</u>\n";
+                    text += lesson + "\n";
+                  }
                 }
                 if (text)
                   functions.malling(
                     { text: true },
                     "Через 5 хвилин починається пара<b>\n" +
                       sheet.cell(column(2) + (timeRow + 1)) +
-                      "</b>" +
+                      "</b>\n" +
                       text,
                     user.user_id,
                     bot
