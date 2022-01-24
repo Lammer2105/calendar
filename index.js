@@ -731,6 +731,26 @@ function startReminder() {
                       text,
                     user.user_id,
                     bot
+                    )
+                    .then(
+                      (onfulfilled) => {
+                        var senеNotifications = data.run(
+                          "select number_of_visits from statistics where name = 'notifications'"
+                        )[0].number_of_visits;
+                        data.update(
+                          "statistics",
+                          { number_of_visits: senеNotifications + 1 },
+                          { name: "notifications" }
+                        );
+                      },
+                      (onrejected) => {
+                        data.insert("blockedusers", {
+                          user_id: user.user_id,
+                          username: user.username,
+                          first_name: user.first_name,
+                        });
+                        data.delete("users", { user_id: user.user_id });
+                      }
                   );
               });
           }
