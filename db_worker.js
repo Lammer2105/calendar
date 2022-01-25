@@ -1377,7 +1377,8 @@ function eduprogskeyboard() {
   var keyboard = [[]];
   var row = 0;
   for (let index = 0; index < eduprogs.length; index++) {
-    if (!getFiles("excelfiles").includes(eduprogs[index].query)) continue;
+    if (!getFiles("excelfiles").includes(eduprogs[index].query))
+      eduprogs.splice(index, 1);
     const keyb_button = data.run("select * from eduprogs where query = ?", [
       eduprogs[index].query,
     ])[0];
@@ -1387,7 +1388,7 @@ function eduprogskeyboard() {
     }
 
     keyboard[row].push({
-      text: keyb_button.name,
+      text: keyb_button.short_name,
       callback_data: keyb_button.query,
     });
   }
