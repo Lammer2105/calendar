@@ -47,19 +47,45 @@ bot.on("message", (msg) => {
 });
 
 bot.on("callback_query", (query) => {
+  functions.updateStatistics(query);
   if (functions.adminPanel(query, bot) != "end") return;
   let user = new User(query.message.chat.id);
   let keyboard = menu_keyboard(query.data, user.user_id);
   if (user.user_id in registration) {
-    if (registration[user.user_id].course) {
-      if (query.data != "skipCourse" && !isNaN(query.data))
-        data.update(
-          "users",
-          { course: +query.data },
-          { user_id: user.user_id }
-        );
+    if (registration[user.user_id].group) {
+      data.update(
+        "users",
+        { group_number: +query.data },
+        { user_id: user.user_id }
+      );
       settingsMessage(query);
+      registration[user.user_id].group = false;
+    }
+    if (registration[user.user_id].course) {
+      data.update("users", { course: +query.data }, { user_id: user.user_id });
+      let groupsKeyboard = [[]];
+      let sheet = new Sheet(user.eduprog);
+      for (
+        let i = 0;
+        i < sheet.groups(sheet.courseColumn(course(+query.data))).length - 1;
+        i++
+      ) {
+        groupsKeyboard[0].push({
+          text: i + 1 + " група",
+          callback_data: i + 1,
+        });
+      }
+      bot.editMessageText(
+        "Обрано " + query.data + " курс. Оберіть групу із доступних:",
+        {
+          parse_mode: "HTML",
+          chat_id: user.user_id,
+          message_id: query.message.message_id,
+          reply_markup: { inline_keyboard: groupsKeyboard },
+        }
+      );
       registration[user.user_id].course = false;
+      registration[user.user_id].group = true;
     }
     if (registration[user.user_id].eduprog) {
       var text = "",
@@ -74,11 +100,11 @@ bot.on("callback_query", (query) => {
           { user_id: user.user_id }
         );
         text =
-          "Обрано освітню програму " +
+          'Обрано освітню програму <i>"' +
           data.run("select name from eduprogs where query = ?", [query.data])[0]
             .name;
       }
-      bot.editMessageText(text + "\nОбери курс", {
+      bot.editMessageText(text + '"</i>\nОбери курс', {
         parse_mode: "HTML",
         chat_id: user.user_id,
         message_id: query.message.message_id,
@@ -94,7 +120,6 @@ bot.on("callback_query", (query) => {
               { text: "1 магістр", callback_data: 5 },
               { text: "2 магістр", callback_data: 6 },
             ],
-            [{ text: "Пропустити крок", callback_data: "skipCourse" }],
           ],
         },
       });
@@ -121,7 +146,7 @@ bot.on("callback_query", (query) => {
     return;
   }
 
-  if (query.data == "register") {
+  if (query.data.includes("register")) {
     functions.register(query, bot);
     registration[user.user_id] = {
       eduprog: true,
@@ -150,7 +175,6 @@ bot.on("callback_query", (query) => {
     var settings_button = data.run(
       "select * from menu_keyboard where callback_data = 'settings'"
     )[0];
-    console.log(settings_button);
     bot.editMessageText(
       "Для цього потрібно закінчити реєстрацію в налаштуваннях",
       {
@@ -178,7 +202,9 @@ bot.on("callback_query", (query) => {
       callback_data: query.data,
     },
   ]);
-  if (query.data == "today") {
+  if (query.data.includes("today")) {
+    var day = new Date().getDay();
+    if (query.data.includes(".")) day = query.data.split(".")[1];
     if (
       functions
         .getFiles("excelfiles")
@@ -191,13 +217,21 @@ bot.on("callback_query", (query) => {
         data.run("select name from eduprogs where query = ?", [user.eduprog])[0]
           .name +
         " " +
-        course(user) +
+        course(user.course) +
         "\n" +
-        getWeekDay(new Date().getDay()) +
+        getWeekDay(day) +
         ":\n" +
-        oneDayText(new Date().getDay(), user.eduprog, course(user));
+        oneDayText(day, user.eduprog, course(user.course));
 
       if (isTextEqual(text, query.message.text)) return;
+      keyboard[0].unshift({
+        text: "⬅️",
+        callback_data: "today." + prevnextday(day)[0],
+      });
+      keyboard[0].push({
+        text: "➡️",
+        callback_data: "today." + prevnextday(day)[1],
+      });
       bot.editMessageText(text, {
         chat_id: user.user_id,
         message_id: query.message.message_id,
@@ -224,11 +258,13 @@ bot.on("callback_query", (query) => {
         data.run("select name from eduprogs where query = ?", [user.eduprog])[0]
           .name +
         " " +
-        course(user) +
+        course(user.course) +
         "\n";
       for (let i = 1; i < 6; i++) {
         text +=
-          getWeekDay(i) + ":\n" + oneDayText(i, user.eduprog, course(user));
+          getWeekDay(i) +
+          ":\n" +
+          oneDayText(i, user.eduprog, course(user.course));
       }
       if (isTextEqual(text, query.message.text)) return;
       try {
@@ -311,11 +347,14 @@ function oneLessonText(sheet, row, col, numberOfColumns) {
         .charAt(0)
         .toUpperCase() == sheet.cell(column(j) + (row + 2)).charAt(0) &&
         sheet.cell(column(j) + (row + 2)) != "" &&
-        sheet.cell(column(j) + row) != "") ||
+        sheet.cell(column(j) + row) != "" &&
+        !sheet.cell(column(j) + (row + 2)).includes("ОНЛАЙН")) ||
       (sheet.cell(column(j) + (row + 2)) != "" &&
-        sheet.cell(column(j) + row) == "") ||
+        sheet.cell(column(j) + row) == "" &&
+        sheet.cell(column(j) + (row + 1)) == "") ||
       (sheet.cell(column(j) + row) != "" &&
-        sheet.cell(column(j) + (row + 2)) == "")
+        sheet.cell(column(j) + (row + 2)) == "" &&
+        sheet.cell(column(j) + (row + 3)) == "")
     ) {
       week = true;
     }
@@ -353,7 +392,7 @@ function menu_keyboard(callback_data, chatId) {
       row++;
       keyboard.push([]);
     }
-    if (callback_data === keyb_button.callback_data) {
+    if (String(callback_data).includes(String(keyb_button.callback_data))) {
       continue;
     }
     if (
@@ -382,11 +421,18 @@ function menu_keyboard(callback_data, chatId) {
 function settingsMessage(query) {
   var notifications,
     Gnotifications,
+    groups,
     user = new User(query.message.chat.id);
 
   user.notifications
     ? (notifications = "увімкнено")
     : (notifications = "вимкнено");
+  user.eduprog
+    ? (groups =
+        new Sheet(user.eduprog).groups(
+          new Sheet(user.eduprog).courseColumn(course(user.course))
+        ).length - 1)
+    : (groups = "?");
   var keyboard = {
       inline_keyboard: [
         [
@@ -399,13 +445,17 @@ function settingsMessage(query) {
       ],
     },
     text =
-      "Поточні налаштування\nОсвітня програма: <b>" +
+      "Поточні налаштування\n\nОсвітня програма: <b>" +
       user.eduprog +
       "</b>\nКурс: <b>" +
       user.course +
-      "</b>\nСповіщення про початок пари <b>" +
+      "</b>\nГрупа: <b>" +
+      user.group +
+      "</b>\n\nВсього груп: <b>" +
+      groups +
+      "</b>\n\n<i>Сповіщення про початок пари</i> <b>" +
       notifications +
-      "</b>";
+      "</b>. Щоб змінити, натисність на кнопку з дзвіночком";
   if (
     data.run("select count (*) as cnt from admins where chat_id = ?", [
       user.user_id,
@@ -421,7 +471,7 @@ function settingsMessage(query) {
       ? (Gnotifications = "увімкнено")
       : (Gnotifications = "вимкнено");
     text +=
-      "\nСповіщення про початок пари для всіх користувачів: <b>" +
+      "\n\nСповіщення про початок пари для всіх користувачів: <b>" +
       Gnotifications +
       "</b>";
   } else {
@@ -456,9 +506,15 @@ function getWeekDay(day) {
   return days[day];
 }
 
-function course(user) {
-  if (user.course > 4) return "магістратура - " + (user.course - 4) + " курс";
-  else return user.course + " курс";
+function prevnextday(day) {
+  if (day == 1) return [6, 2];
+  if (day == 6) return [5, 1];
+  return [+day - 1, +day + 1];
+}
+
+function course(course) {
+  if (course > 4) return "магістратура - " + (course - 4) + " курс";
+  return course + " курс";
 }
 
 function isTextEqual(newText, oldText) {
@@ -530,7 +586,12 @@ class Sheet {
     };
     this.groups = function (courseColumn) {
       var groupColumns = [];
-      if (this.cell(column(courseColumn) + "8") == "") return [courseColumn];
+      if (this.cell(column(courseColumn) + "8") == "") {
+        groupColumns.push(courseColumn);
+        groupColumns.push(this.courseColumns(courseColumn) + courseColumn);
+        return groupColumns;
+      }
+
       for (
         var i = courseColumn;
         i < this.courseColumns(courseColumn) + courseColumn;
@@ -570,6 +631,7 @@ class User {
     this.course = user.course;
     this.username = user.username ? user.username : "";
     this.first_name = user.first_name;
+    this.group = user.group_number;
   }
 }
 
@@ -671,7 +733,7 @@ function startReminder() {
                 var sheet = new Sheet(user.eduprog),
                   courseColumn,
                   groups;
-                courseColumn = sheet.courseColumn(course(user));
+                courseColumn = sheet.courseColumn(course(user.course));
                 groups = sheet.groups(courseColumn);
                 timeRow = sheet.timeRow(
                   sheet.dayRow(new Date().getDay()),
@@ -679,6 +741,8 @@ function startReminder() {
                 );
 
                 var text = "";
+                if (user.group_number)
+                  text += "<i>" + user.group_number + " група</i>";
                 if (
                   isDayEmpty(
                     sheet,
@@ -700,22 +764,53 @@ function startReminder() {
                       lesson.indexOf("(л)") == -1 &&
                       lesson.indexOf("Кластер") == -1 &&
                       lesson.indexOf("Кл.") == -1
-                    )
+                    ) {
                       //do not add a group ID when a pair exists for a cluster or is a lecture
-                      text += "<u><b>" + (i + 1) + "</b> група</u>\n";
-                    text += lesson + "\n";
+                      if (user.group_number && user.group_number == i + 1)
+                        text += lesson + "\n";
+                      if (user.group_number == null)
+                        text +=
+                          "<u><b>" +
+                          (i + 1) +
+                          "</b> група</u>\n" +
+                          lesson +
+                          "\n";
+                    } else {
+                      text += lesson + "\n";
+                    }
                   }
                 }
                 if (text)
-                  functions.malling(
-                    { text: true },
-                    "Через 5 хвилин починається пара<b>\n" +
-                      sheet.cell(column(2) + (timeRow + 1)) +
-                      "</b>\n" +
-                      text,
-                    user.user_id,
-                    bot
-                  );
+                  functions
+                    .malling(
+                      { text: true },
+                      "Через 5 хвилин починається пара<b>\n" +
+                        sheet.cell(column(2) + (timeRow + 1)) +
+                        "</b>\n" +
+                        text,
+                      user.user_id,
+                      bot
+                    )
+                    .then(
+                      (onfulfilled) => {
+                        var senеNotifications = data.run(
+                          "select number_of_visits from statistics where name = 'notifications'"
+                        )[0].number_of_visits;
+                        data.update(
+                          "statistics",
+                          { number_of_visits: senеNotifications + 1 },
+                          { name: "notifications" }
+                        );
+                      },
+                      (onrejected) => {
+                        data.insert("blockedusers", {
+                          user_id: user.user_id,
+                          username: user.username,
+                          first_name: user.first_name,
+                        });
+                        data.delete("users", { user_id: user.user_id });
+                      }
+                    );
               });
           }
         }
