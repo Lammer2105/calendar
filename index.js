@@ -422,6 +422,7 @@ function settingsMessage(query) {
   var notifications,
     Gnotifications,
     groups,
+    eduprog,
     user = new User(query.message.chat.id);
 
   user.notifications
@@ -433,6 +434,11 @@ function settingsMessage(query) {
           new Sheet(user.eduprog).courseColumn(course(user.course))
         ).length - 1)
     : (groups = "?");
+  user.eduprog
+    ? (eduprog = data.run("select * from eduprogs where query = ?", [
+        user.eduprog,
+      ])[0].short_name)
+    : (eduprog = "?");
   var keyboard = {
       inline_keyboard: [
         [
@@ -446,7 +452,7 @@ function settingsMessage(query) {
     },
     text =
       "Поточні налаштування\n\nОсвітня програма: <b>" +
-      user.eduprog +
+      eduprog +
       "</b>\nКурс: <b>" +
       user.course +
       "</b>\nГрупа: <b>" +
@@ -742,7 +748,7 @@ function startReminder() {
 
                 var text = "";
                 if (user.group_number)
-                  text += "<i>" + user.group_number + " група</i>";
+                  text += "<i>" + user.group_number + " група</i>\n";
                 if (
                   isDayEmpty(
                     sheet,
