@@ -36,6 +36,14 @@ bot.onText(/\/start/, async (msg) => {
         reply_markup: { inline_keyboard: menu_keyboard(null, msg.chat.id) },
       }
     );
+    data.update(
+      "users",
+      {
+        username: msg.chat.username,
+        first_name: msg.chat.first_name,
+      },
+      { user_id: msg.chat.id }
+    );
   }
 });
 
@@ -63,25 +71,25 @@ bot.on("callback_query", (query) => {
     }
     if (registration[user.user_id].course) {
       data.update("users", { course: +query.data }, { user_id: user.user_id });
-      let groupsKeyboard = [[]];
+      keyboard = [[]];
       let sheet = new Sheet(user.eduprog);
-      for (
-        let i = 0;
-        i < sheet.groups(sheet.courseColumn(course(+query.data))).length - 1;
-        i++
-      ) {
-        groupsKeyboard[0].push({
+      for (let i = 0, row = 0; i < sheet.groups(+query.data).length - 1; i++) {
+        if (i % 4 == 0) {
+          keyboard.push([]);
+          row++;
+        }
+        keyboard[row].push({
           text: i + 1 + " група",
-          callback_data: i + 1,
+          callback_data: i,
         });
       }
       bot.editMessageText(
-        "Обрано " + query.data + " курс. Оберіть групу із доступних:",
+        "Обрано " + (+query.data + 1) + " курс. Оберіть групу із доступних:",
         {
           parse_mode: "HTML",
           chat_id: user.user_id,
           message_id: query.message.message_id,
-          reply_markup: { inline_keyboard: groupsKeyboard },
+          reply_markup: { inline_keyboard: keyboard },
         }
       );
       registration[user.user_id].course = false;
@@ -89,7 +97,8 @@ bot.on("callback_query", (query) => {
     }
     if (registration[user.user_id].eduprog) {
       var text = "",
-        eduprogs = data.run("select * from eduprogs");
+        eduprogs = data.run("select * from eduprogs"),
+        sheet = new Sheet(query.data);
       for (let i = 0; i < eduprogs.length; i++) {
         eduprogs[i] = eduprogs[i].query;
       }
@@ -102,32 +111,29 @@ bot.on("callback_query", (query) => {
         text =
           'Обрано освітню програму <i>"' +
           data.run("select name from eduprogs where query = ?", [query.data])[0]
-            .name;
+            .name +
+          "</i>\n";
       }
-      bot.editMessageText(text + '"</i>\nОбери курс', {
+      keyboard = [[]];
+      for (let i = 0, row = 0; i < sheet.courses().length; i++) {
+        if (i % 4 == 0) {
+          row++;
+          keyboard.push([]);
+        }
+        keyboard[row].push({ text: i + 1, callback_data: i });
+      }
+      bot.editMessageText(text + "Обери курс", {
         parse_mode: "HTML",
         chat_id: user.user_id,
         message_id: query.message.message_id,
         reply_markup: {
-          inline_keyboard: [
-            [
-              { text: "1", callback_data: 1 },
-              { text: "2", callback_data: 2 },
-              { text: "3", callback_data: 3 },
-              { text: "4", callback_data: 4 },
-            ],
-            [
-              { text: "1 магістр", callback_data: 5 },
-              { text: "2 магістр", callback_data: 6 },
-            ],
-          ],
+          inline_keyboard: keyboard,
         },
       });
       registration[user.user_id].eduprog = false;
       registration[user.user_id].course = true;
     }
   }
-
   if (query.data == "notify")
     data.update("users", { notifications: 1 }, { user_id: user.user_id });
   if (query.data == "notnotify")
@@ -145,7 +151,6 @@ bot.on("callback_query", (query) => {
     settingsMessage(query);
     return;
   }
-
   if (query.data.includes("register")) {
     functions.register(query, bot);
     registration[user.user_id] = {
@@ -169,7 +174,7 @@ bot.on("callback_query", (query) => {
   }
 
   if (
-    (user.eduprog == null || user.course == null) &&
+    (user.eduprog == null || user.course == null || user.group == null) &&
     (query.data == "today" || query.data == "week")
   ) {
     var settings_button = data.run(
@@ -213,15 +218,18 @@ bot.on("callback_query", (query) => {
             .eduprog
         )
     ) {
+      var sheet = new Sheet(user.eduprog);
       var text =
         data.run("select name from eduprogs where query = ?", [user.eduprog])[0]
           .name +
         " " +
-        course(user.course) +
+        sheet.cell(
+          column(sheet.courses(user.course).column) + sheet.coursesRow()
+        ) +
         "\n" +
         getWeekDay(day) +
         ":\n" +
-        oneDayText(day, user.eduprog, course(user.course));
+        oneDayText(day, user.eduprog, user.course);
 
       if (isTextEqual(text, query.message.text)) return;
       keyboard[0].unshift({
@@ -254,17 +262,18 @@ bot.on("callback_query", (query) => {
             .eduprog
         )
     ) {
+      var sheet = new Sheet(user.eduprog);
       var text =
         data.run("select name from eduprogs where query = ?", [user.eduprog])[0]
           .name +
         " " +
-        course(user.course) +
+        sheet.cell(
+          column(sheet.courses(user.course).column) + sheet.coursesRow()
+        ) +
         "\n";
       for (let i = 1; i < 6; i++) {
         text +=
-          getWeekDay(i) +
-          ":\n" +
-          oneDayText(i, user.eduprog, course(user.course));
+          getWeekDay(i) + "🌞:\n" + oneDayText(i, user.eduprog, user.course);
       }
       if (isTextEqual(text, query.message.text)) return;
       try {
@@ -283,8 +292,8 @@ bot.on("callback_query", (query) => {
     }
   }
 });
-function isDayEmpty(sheet, dayRow, courseColumn) {
-  for (let j = dayRow; j < dayRow + sheet.dayRows(dayRow); j++) {
+function isDayEmpty(sheet, dayInfo, courseColumn) {
+  for (let j = dayInfo[0]; j < dayInfo[0] + dayInfo[1]; j++) {
     if (sheet.cell(column(courseColumn) + j).toUpperCase() == "ДЕНЬ") {
       return true;
     }
@@ -294,22 +303,24 @@ function isDayEmpty(sheet, dayRow, courseColumn) {
 function oneDayText(day, eduprog, course) {
   var text = "",
     sheet = new Sheet(eduprog),
-    dayRow,
     courseColumn,
     groups;
-  dayRow = sheet.dayRow(day);
-  courseColumn = sheet.courseColumn(course);
-  groups = sheet.groups(courseColumn);
+  dayInfo = sheet.dayInfo(day);
+  courseColumn = sheet.courses(course).column;
+  groups = sheet.groups(course);
 
-  if (isDayEmpty(sheet, dayRow, courseColumn) || day == 0)
+  if (isDayEmpty(sheet, dayInfo, courseColumn) || day == 0 || day == 6)
     return text + "<b>День самостійної роботи</b>\n\n";
-
-  for (let j = dayRow; j < dayRow + sheet.dayRows(dayRow); j += 4) {
+  for (
+    let timeRow = dayInfo[0];
+    timeRow < dayInfo[0] + dayInfo[1];
+    timeRow += 4
+  ) {
     let classes = "";
     for (i = 0; i < groups.length - 1; i++) {
       const lesson = oneLessonText(
         sheet,
-        j,
+        timeRow,
         groups[i],
         groups[i + 1] - groups[i]
       );
@@ -327,7 +338,7 @@ function oneDayText(day, eduprog, course) {
     if (classes) {
       text +=
         "<b><i>" +
-        sheet.cell(column(2) + (j + 1)) +
+        sheet.cell(column(2) + (timeRow + 1)) +
         "</i></b>\n" +
         classes +
         "\n";
@@ -429,10 +440,7 @@ function settingsMessage(query) {
     ? (notifications = "увімкнено")
     : (notifications = "вимкнено");
   user.eduprog
-    ? (groups =
-        new Sheet(user.eduprog).groups(
-          new Sheet(user.eduprog).courseColumn(course(user.course))
-        ).length - 1)
+    ? (groups = new Sheet(user.eduprog).groups(user.course).length - 1)
     : (groups = "?");
   user.eduprog
     ? (eduprog = data.run("select * from eduprogs where query = ?", [
@@ -454,9 +462,9 @@ function settingsMessage(query) {
       "Поточні налаштування\n\nОсвітня програма: <b>" +
       eduprog +
       "</b>\nКурс: <b>" +
-      user.course +
+      (user.course + 1) +
       "</b>\nГрупа: <b>" +
-      user.group +
+      (user.group + 1) +
       "</b>\n\nВсього груп: <b>" +
       groups +
       "</b>\n\n<i>Сповіщення про початок пари</i> <b>" +
@@ -513,14 +521,9 @@ function getWeekDay(day) {
 }
 
 function prevnextday(day) {
-  if (day == 1) return [6, 2];
-  if (day == 6) return [5, 1];
+  if (day == 1) return [5, 2];
+  if (day == 5) return [4, 1];
   return [+day - 1, +day + 1];
-}
-
-function course(course) {
-  if (course > 4) return "магістратура - " + (course - 4) + " курс";
-  return course + " курс";
 }
 
 function isTextEqual(newText, oldText) {
@@ -558,58 +561,40 @@ class Sheet {
     this.cell = function (coord) {
       return this.worksheet[coord] ? this.worksheet[coord].v : "";
     };
-    this.courseColumn = function (course, i = 1) {
-      for (i; true; i++) {
-        if (this.cell(column(i) + "6") == course) {
-          break;
-        }
-      }
-      return i;
-    };
-    this.dayRow = function (day, i = 1) {
+
+    this.dayInfo = function (day, i = 1) {
       for (i; true; i++) {
         if (this.cell("A" + i) == getWeekDay(day)) {
-          break;
+          for (var j = i + 1; true; j++) {
+            if (this.cell("A" + j) != "") {
+              return [i, j - i];
+            }
+          }
         }
       }
-      return i;
     };
-    this.courseColumns = function (courseColumn) {
-      for (var i = courseColumn + 1; true; i++) {
-        if (this.cell(column(i) + "6") != "") {
-          break;
-        }
-      }
-      return i - courseColumn;
-    };
-    this.dayRows = function (dayRow) {
-      for (var i = dayRow + 1; true; i++) {
-        if (this.cell("A" + i) != "") {
-          break;
-        }
-      }
-      return i - dayRow;
-    };
-    this.groups = function (courseColumn) {
-      var groupColumns = [];
-      if (this.cell(column(courseColumn) + "8") == "") {
+
+    this.groups = function (course) {
+      var groupColumns = [],
+        courseColumn = this.courses(course).column;
+      if (this.cell(column(courseColumn) + this.groupRow()) == "") {
         groupColumns.push(courseColumn);
-        groupColumns.push(this.courseColumns(courseColumn) + courseColumn);
+        groupColumns.push(this.courses(course).courseColumns + courseColumn);
         return groupColumns;
       }
-
       for (
         var i = courseColumn;
-        i < this.courseColumns(courseColumn) + courseColumn;
+        i <= this.courses(course).courseColumns + courseColumn;
         i++
       ) {
-        if (this.cell(column(i) + "8") != "") groupColumns.push(i);
+        if (this.cell(column(i) + this.groupRow()) != "") groupColumns.push(i);
       }
-      groupColumns.push(this.courseColumns(courseColumn) + courseColumn);
+
       return groupColumns;
     };
-    this.timeRow = function (dayRow, time) {
-      for (var i = dayRow; true; i++) {
+
+    this.timeRow = function (day, time) {
+      for (var i = this.dayInfo(day)[0]; true; i++) {
         const cell = this.cell("B" + i);
         if (cell != "") {
           if (
@@ -623,6 +608,54 @@ class Sheet {
         }
       }
       return i - 1;
+    };
+
+    this.courses = function (course = null) {
+      var courses = [];
+      for (var i = 1, colIterator = 0; colIterator < 20; i++, colIterator++) {
+        if (this.cell(column(i) + this.coursesRow()) != "") {
+          for (var courseColumns = 1; courseColumns <= 20; courseColumns++) {
+            if (
+              this.cell(column(i + courseColumns) + this.coursesRow()) != ""
+            ) {
+              break;
+            }
+          }
+          courses.push({
+            name:
+              this.cell(column(i) + this.coursesRow()) +
+              "\n" +
+              this.cell(column(i) + (this.coursesRow() + 1)),
+            column: i,
+            courseColumns: courseColumns,
+          });
+          colIterator = 0;
+        }
+      }
+      if (course != null) return courses[course];
+      return courses;
+    };
+
+    this.coursesRow = function () {
+      for (var i = 0; i < 15; i++) {
+        if (this.cell("A" + i).includes("ОП")) {
+          break;
+        }
+      }
+      let coursesRow = i + 1;
+      if (i == 15) coursesRow = 6;
+      return coursesRow;
+    };
+
+    this.groupRow = function () {
+      for (var i = 0; i < 15; i++) {
+        if (this.cell("A" + i).includes(getWeekDay(1))) {
+          break;
+        }
+      }
+      let groupRow = i - 1;
+      if (i == 15) groupRow = 8;
+      return groupRow;
     };
   }
 }
@@ -737,27 +770,20 @@ function startReminder() {
               )
               .forEach((user) => {
                 var sheet = new Sheet(user.eduprog),
-                  courseColumn,
-                  groups;
-                courseColumn = sheet.courseColumn(course(user.course));
-                groups = sheet.groups(courseColumn);
-                timeRow = sheet.timeRow(
-                  sheet.dayRow(new Date().getDay()),
-                  exact_times[times.indexOf(time)]
-                );
-
-                var text = "";
-                if (user.group_number)
-                  text += "<i>" + user.group_number + " група</i>\n";
+                  groups = sheet.groups(user.course),
+                  timeRow = sheet.timeRow(
+                    new Date().getDay(),
+                    exact_times[times.indexOf(time)]
+                  ),
+                  text = "";
                 if (
                   isDayEmpty(
                     sheet,
-                    sheet.dayRow(new Date().getDay()),
-                    courseColumn
+                    sheet.dayInfo(new Date().getDay()),
+                    sheet.courses(user.course).column
                   )
                 )
                   return;
-
                 for (i = 0; i < groups.length - 1; i++) {
                   const lesson = oneLessonText(
                     sheet,
@@ -772,13 +798,11 @@ function startReminder() {
                       lesson.indexOf("Кл.") == -1
                     ) {
                       //do not add a group ID when a pair exists for a cluster or is a lecture
-                      if (user.group_number && user.group_number == i + 1)
-                        text += lesson + "\n";
-                      if (user.group_number == null)
+                      if (user.group_number && user.group_number == i)
                         text +=
-                          "<u><b>" +
-                          (i + 1) +
-                          "</b> група</u>\n" +
+                          "<i>" +
+                          (user.group_number + 1) +
+                          " група</i>\n" +
                           lesson +
                           "\n";
                     } else {
