@@ -258,6 +258,8 @@ module.exports = {
                   ])[0].first_name) +
               "</a> " +
               (user.user_id ? user.user_id : user.chat_id) +
+              " " +
+              user.notifications +
               (query == "admins" ? " " + user.rank : "") +
               "\n";
             if (current_admin[0].rank === "god" && query == "admins") {
@@ -1366,7 +1368,7 @@ function eduprogskeyboard() {
       const keyb_button = data.run("select * from eduprogs where query = ?", [
         eduprogs[index].query,
       ])[0];
-      if (index % 4 == 0) {
+      if (index % 3 == 0) {
         row++;
         keyboard.push([]);
       }
