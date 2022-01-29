@@ -112,17 +112,19 @@ bot.on("callback_query", (query) => {
           'Обрано освітню програму <i>"' +
           data.run("select name from eduprogs where query = ?", [query.data])[0]
             .name +
-          "</i>\n";
+          '"</i>\n';
       }
+      text += "Обери курс:\n";
       keyboard = [[]];
       for (let i = 0, row = 0; i < sheet.courses().length; i++) {
         if (i % 4 == 0) {
           row++;
           keyboard.push([]);
         }
+        text += i + 1 + ": " + removeNextLine(sheet.courses()[i].name) + "\n";
         keyboard[row].push({ text: i + 1, callback_data: i });
       }
-      bot.editMessageText(text + "Обери курс", {
+      bot.editMessageText(text, {
         parse_mode: "HTML",
         chat_id: user.user_id,
         message_id: query.message.message_id,
@@ -534,6 +536,10 @@ function isTextEqual(newText, oldText) {
     oldText = oldText.replace(element, "");
   });
   return newText == oldText;
+}
+
+function removeNextLine(str) {
+  return str.replace(/\n+/g, " ");
 }
 
 function column(columnNumber) {
