@@ -305,11 +305,12 @@ function oneDayText(day, eduprog, course) {
     sheet = new Sheet(eduprog),
     courseColumn,
     groups;
-  dayInfo = sheet.dayInfo(day);
+
   courseColumn = sheet.courses(course).column;
   groups = sheet.groups(course);
-
-  if (isDayEmpty(sheet, dayInfo, courseColumn) || day == 0 || day == 6)
+  if (day == 0 || day == 6) return text + "<b>День самостійної роботи</b>\n\n";
+  dayInfo = sheet.dayInfo(day);
+  if (isDayEmpty(sheet, dayInfo, courseColumn))
     return text + "<b>День самостійної роботи</b>\n\n";
   for (
     let timeRow = dayInfo[0];
@@ -521,8 +522,8 @@ function getWeekDay(day) {
 }
 
 function prevnextday(day) {
+  if (day == 0 || day == 6 || day == 5) return [4, 1];
   if (day == 1) return [5, 2];
-  if (day == 5) return [4, 1];
   return [+day - 1, +day + 1];
 }
 
