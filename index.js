@@ -805,7 +805,7 @@ function startReminder() {
                       lesson.indexOf("Кл.") == -1
                     ) {
                       //do not add a group ID when a pair exists for a cluster or is a lecture
-                      if (user.group_number && user.group_number == i)
+                      if (user.group_number != null && user.group_number == i)
                         text +=
                           "<i>" +
                           (user.group_number + 1) +
